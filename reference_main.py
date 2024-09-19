@@ -11,13 +11,22 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from arxiv_downloader import download_paper_from_arxiv
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from google.api_core import exceptions as google_exceptions
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure the API key
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Get all available API keys
+API_KEYS = [os.getenv(f"GEMINI_API_KEY_{i}") for i in range(1, 7) if os.getenv(f"GEMINI_API_KEY_{i}")]
+current_key_index = 0
+
+def rotate_api_key():
+    global current_key_index
+    current_key_index = (current_key_index + 1) % len(API_KEYS)
+    new_key = API_KEYS[current_key_index]
+    genai.configure(api_key=new_key)
+    print(f"Rotated to API key {current_key_index + 1}")
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def download_with_retry(arxiv_url):
@@ -28,6 +37,21 @@ def download_with_retry(arxiv_url):
 def upload_to_gemini_with_retry(path, mime_type=None):
     """Uploads the given file to Gemini with retry logic."""
     return genai.upload_file(path, mime_type=mime_type)
+
+@retry(stop=stop_after_attempt(len(API_KEYS)), 
+       wait=wait_exponential(multiplier=1, min=4, max=10),
+       retry=retry_if_exception_type((google_exceptions.GoogleAPIError, requests.exceptions.RequestException)))
+def send_message_with_retry(chat_session, message):
+    """Send a message to the model with retry logic and key rotation for HTTP errors."""
+    try:
+        return chat_session.send_message(message)
+    except (google_exceptions.GoogleAPIError, requests.exceptions.RequestException) as e:
+        if isinstance(e, requests.exceptions.HTTPError):
+            print(f"HTTP error encountered: {str(e)}")
+            rotate_api_key()
+        else:
+            print(f"Non-HTTP error encountered: {str(e)}")
+        raise
 
 def paper_already_analyzed(arxiv_id):
     """Check if the paper analysis already exists."""
@@ -81,13 +105,10 @@ def analyze_paper(arxiv_url, model):
         print(f"Paper {arxiv_id} has already been analyzed. Skipping.")
         return
 
+    input_file_path = None
     try:
         input_file_path = download_with_retry(arxiv_url)
-    except Exception as e:
-        print(f"Error downloading paper from {arxiv_url} after retries: {str(e)}")
-        return
 
-    try:
         files = [
             upload_to_gemini_with_retry(input_file_path, mime_type="application/pdf"),
         ]
@@ -107,22 +128,21 @@ def analyze_paper(arxiv_url, model):
             ]
         )
 
-        response = chat_session.send_message("Now generate the result in markdown format.")
-
+        response = send_message_with_retry(chat_session, "Now generate the result in markdown format.")
         print(response.text)
-
-        # Save the response to a markdown file
         save_response_to_md(arxiv_id, response.text)
     except Exception as e:
         print(f"Error analyzing paper {arxiv_id}: {str(e)}")
     finally:
-        # Clean up the downloaded file
-        if os.path.exists(input_file_path):
+        if input_file_path and os.path.exists(input_file_path):
             os.remove(input_file_path)
 
 def main():
     args = parse_arguments()
     
+    # Initialize with the first API key
+    genai.configure(api_key=API_KEYS[0])
+
     # Create the model
     generation_config = {
         "temperature": 0,

@@ -1,0 +1,56 @@
+flowchart TD
+    A[Start] --> B[Load Environment Variables]
+    B --> C{API Keys Available?}
+    C -- No --> D[Exit with Error]
+    C -- Yes --> E[Initialize API Key]
+    E --> F[Parse Command-Line Arguments]
+    F --> G{URL or File?}
+    G -- URL --> H[Analyze Single Paper]
+    G -- File --> I[Read URLs from File]
+    I --> J[Process Papers Concurrently]
+    H --> K[Extract arXiv ID]
+    K --> L{Paper Already Analyzed?}
+    L -- Yes --> M[Skip Analysis]
+    L -- No --> N{Paper Already Downloaded?}
+    N -- Yes --> O[Use Existing File]
+    N -- No --> P[Download Paper with Retry]
+    P --> Q[Upload to Gemini with Retry]
+    O --> Q
+    Q --> R[Wait for Files to be Active]
+    R --> S[Start Chat Session]
+    S --> T[Send Message with Retry]
+    T --> U[Save Response to Markdown]
+    U --> V[Remove Temporary File]
+    V --> W[Log Memory Usage]
+    W --> X{Memory Usage > 95MB?}
+    X -- Yes --> Y[Invoke Garbage Collection]
+    X -- No --> Z[Continue]
+    J --> AA[Analyze Paper]
+    AA --> K
+    Z --> AB[Snapshot Memory Allocation]
+    AB --> AC[Log Top Memory Consumers]
+    AC --> AD[End]
+
+    subgraph Analyze Single Paper
+        K --> L
+        L --> M
+        L --> N
+        N --> O
+        N --> P
+        P --> Q
+        O --> Q
+        Q --> R
+        R --> S
+        S --> T
+        T --> U
+        U --> V
+        V --> W
+        W --> X
+        X --> Y
+        X --> Z
+    end
+
+    subgraph Process Papers Concurrently
+        I --> J
+        J --> AA
+    end

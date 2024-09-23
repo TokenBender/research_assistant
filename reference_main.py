@@ -24,16 +24,6 @@ import gc  # Imported garbage collection module
 import sys  # Imported sys for exception handling
 import psutil  # Imported psutil for monitoring memory usage
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("reference_main.log"),
-        logging.StreamHandler()
-    ]
-)
-
 # Load environment variables from .env file
 load_dotenv()
 
@@ -45,7 +35,7 @@ API_KEYS = [
 ]
 
 if not API_KEYS:
-    logging.error("No GEMINI_API_KEYs found in environment variables.")
+    print("No GEMINI_API_KEYs found in environment variables.")
     exit(1)
 
 current_key_index = 0
@@ -146,6 +136,11 @@ def parse_arguments():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-u", "--url", help="The arXiv URL of the paper to analyze.")
     group.add_argument("-f", "--file", help="Path to a file containing arXiv URLs, one per line.")
+    parser.add_argument(
+        "--no-debug",
+        action="store_true",
+        help="Disable debug logging."
+    )
     return parser.parse_args()
 
 def read_urls_from_file(file_path):
@@ -254,7 +249,22 @@ def main():
     setup_exception_hook()  # Set up the exception hook early
 
     args = parse_arguments()
-    
+
+    # Configure logging based on the --no-debug flag
+    if args.no_debug:
+        logging_level = logging.INFO
+    else:
+        logging_level = logging.DEBUG
+
+    logging.basicConfig(
+        level=logging_level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler("reference_main.log"),
+            logging.StreamHandler()
+        ]
+    )
+
     # Initialize with the first API key
     genai.configure(api_key=API_KEYS[0])
     logging.info(f"Initialized with API key 1 of {len(API_KEYS)}")
